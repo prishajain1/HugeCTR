@@ -15,7 +15,7 @@
  */
 
 #include <unistd.h>
-
+#include <nvtx3/nvToolsExt.h>
 #include <pipeline.hpp>
 
 namespace HugeCTR {
@@ -93,7 +93,13 @@ void StreamContextScheduleable::run(std::shared_ptr<GPUResource> gpu, bool use_g
           wait_external_ && use_graph ? cudaEventWaitExternal : cudaEventWaitDefault));
     }
   }
-  if (workload_) workload_();
+
+  if (workload_) {
+    const char* name = label_.empty() ? "GPU Workload" : label_.c_str();
+    nvtxRangePushA(name); 
+    workload_();
+    nvtxRangePop();
+  }
   if (completion_event_.has_value()) {
     HCTR_LIB_THROW(cudaEventRecordWithFlags(
         completion_event_.value(), stream,
@@ -103,6 +109,7 @@ void StreamContextScheduleable::run(std::shared_ptr<GPUResource> gpu, bool use_g
 
 void GraphScheduleable::run(std::shared_ptr<GPUResource> gpu, bool use_graph) {
   if (scheduleable_list_.empty()) return;
+  const char* name = label_.empty() ? "GPU Workload" : label_.c_str();
   auto do_it = [=](cudaStream_t) {
     for (auto &scheduleable : scheduleable_list_) {
       scheduleable->run(gpu, use_graph);
@@ -114,18 +121,26 @@ void GraphScheduleable::run(std::shared_ptr<GPUResource> gpu, bool use_graph) {
   auto [current_stream_name, priority] = first_node->get_stream_name(gpu);
   cudaStream_t stream = gpu->get_stream(current_stream_name, priority);
   if (!use_graph) {
+    nvtxRangePushA(name); 
     do_it(stream);
+    nvtxRangePop();
     return;
   }
   if (!graph_.initialized) {
+    std::string capture_label = label_ + "(CUDA Graph Capture Phase)";
+    nvtxRangePushA(capture_label.c_str());
     graph_.capture(do_it, stream);
+    nvtxRangePop();
 #ifdef ENABLE_MPI
 #pragma omp master
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
 #pragma omp barrier
   }
+  std::string graph_exec_label = label_ + "(CUDA Graph Exec Phase)";
+  nvtxRangePushA(graph_exec_label.c_str());
   graph_.exec(stream);
+  nvtxRangePop();
 }
 
 Pipeline::Pipeline(const std::string &stream_name, std::shared_ptr<GPUResource> gpu_resource,
@@ -140,17 +155,21 @@ Pipeline::Pipeline(const std::string &stream_name, std::shared_ptr<GPUResource> 
 }
 
 void Pipeline::run() {
+  nvtxRangePushA("Pipeline run: standard Kernels");
   StreamContext stream_context(gpu_resource_, stream_name_);
   for (auto &scheduleable : scheduleable_list_) {
     scheduleable->run(gpu_resource_, false);
   }
+  nvtxRangePop();
 }
 
 void Pipeline::run_graph() {
+  nvtxRangePushA("Pipeline run: CUDA Graphs");
   StreamContext stream_context(gpu_resource_, stream_name_);
   for (auto &scheduleable : scheduleable_list_) {
     scheduleable->run(gpu_resource_, true);
   }
+  nvtxRangePop();
 }
 
 }  // namespace HugeCTR

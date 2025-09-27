@@ -27,6 +27,7 @@
 #include <iomanip>
 #include <iterator>
 #include <network_buffer_channels.hpp>
+#include <nvtx3/nvToolsExt.h>
 #include <pybind/model.hpp>
 #include <resource_managers/resource_manager_core.hpp>
 #include <sstream>
@@ -1047,11 +1048,13 @@ long long Model::read_a_batch(bool is_train) {
 bool is_first_h2d = true;
 bool Model::train() {
   try {
+    nvtxRangePushA("Check data reader");
     if (train_data_reader_->is_started() == false) {
       HCTR_OWN_THROW(Error_t::IllegalCall,
                      "Start the data reader first before "
                      "calling Model::train()");
     }
+    nvtxRangePop();
 
 #ifndef DATA_READING_TEST
     // TODO: assuming the there are enough training
@@ -1068,9 +1071,11 @@ bool Model::train() {
     bool skip_h2d = (skip_h2d_env != nullptr && 1 == std::atoi(skip_h2d_env));
 
     bool is_train = true;
+    nvtxRangePushA("Reading batch data");
     long long current_batchsize = (skip_h2d && !is_first_h2d)
                                       ? train_data_reader_->get_full_batchsize()
                                       : read_a_batch(is_train);
+    nvtxRangePop();
     is_first_h2d = false;
     if (!current_batchsize) {
       return false;
@@ -1078,17 +1083,21 @@ bool Model::train() {
 
     if (solver_.all_reduce_algo == AllReduceAlgo::NCCL and
         train_data_reader_->current_batch_incomplete()) {
+          nvtxRangePushA("Sync for batch reading");
 #pragma omp parallel num_threads(number_of_networks())
       {
         size_t id = omp_get_thread_num();
         CudaCPUDeviceContext ctx(resource_manager_->get_local_gpu(id)->get_device_id());
         cudaStreamSynchronize(resource_manager_->get_local_gpu(id)->get_stream());
       }
+      nvtxRangePop();
     }
     this->check_overflow();
 
     if (solver_.use_embedding_collection) {
+      nvtxRangePushA("EBC_Training_Pipeline");
       train_pipeline_with_ebc();
+      nvtxRangePop();
       return true;
     }
 
@@ -1139,17 +1148,28 @@ bool Model::train() {
 
 bool Model::eval() {
   try {
-    if (evaluate_data_reader_ == nullptr) return true;
+    nvtxRangePushA("Check data reader");
+    if (evaluate_data_reader_ == nullptr) {
+      nvtxRangePop();
+      return true;
+    }
     if (evaluate_data_reader_->is_started() == false) {
       HCTR_OWN_THROW(Error_t::IllegalCall,
                      "Start the data reader first before calling Model::eval()");
     }
+    nvtxRangePop();
+    
     if (!high_level_eval_) {
+      nvtxRangePushA("Copy weights");
       this->check_overflow();
       this->copy_weights_for_evaluation();
+      nvtxRangePop();
     }
+ 
     bool is_train = false;
+    nvtxRangePushA("Reading batch data");
     long long current_batchsize = read_a_batch(is_train);
+    nvtxRangePop();
 
     for (auto& metric : metrics_) {
       metric->set_current_batch_size(current_batchsize);
@@ -1163,24 +1183,22 @@ bool Model::eval() {
     assert((networks_.size() >= 1) && "(core23)networks_.size() should not less than 1.");
 
     if (solver_.use_embedding_collection) {
+      nvtxRangePushA("EBC_Evaluation_Pipeline");
       evaluate_pipeline_with_ebc();
+      nvtxRangePop();
       return true;
     }
-
     for (size_t i = 0; i < embeddings_.size(); ++i) {
       auto& one_embedding = embeddings_.at(i);
       one_embedding->forward(false);
     }
-
 #pragma omp parallel num_threads(number_of_networks())
     {
       size_t id = omp_get_thread_num();
       auto gpu = resource_manager_->get_local_gpu(id);
-
       // doesn't do anything if eval_overlap disabled
       graph_.evaluate_pipeline_[id].run();
     }
-
     for (auto& metric : metrics_) {
       metric->global_reduce(number_of_networks());
     }

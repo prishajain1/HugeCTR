@@ -19,6 +19,7 @@
 #include "embedding/dense_model_parallel_embedding.hpp"
 #include "embedding/hier_model_parallel_embedding.hpp"
 #include "embedding/model_parallel_embedding.hpp"
+#include <nvtx3/nvToolsExt.h>
 
 namespace HugeCTR {
 
@@ -358,16 +359,23 @@ void EmbeddingCollection::cache_ddl_output(int gpu_id,
 void EmbeddingCollection::forward_per_gpu(Stage stage, bool is_train, int gpu_id,
                                           const HugeCTR::DataDistributor::Result &input,
                                           core23::Tensor &output_buffer, int batch_size) {
+  std::string stage_name = to_string(stage);
   // embedding ops
   auto &embeddings = is_train ? embeddings_[gpu_id] : eval_embeddings_[gpu_id];
   for (size_t grouped_id = 0; grouped_id < embeddings.size(); ++grouped_id) {
-    if (!embeddings[grouped_id]->is_valid_stage(stage)) continue;
+    std::string group_label = std::string(stage_name) + "::Group_" + std::to_string(grouped_id); 
+    nvtxRangePushA(group_label.c_str()); 
+    if (!embeddings[grouped_id]->is_valid_stage(stage)) {
+      nvtxRangePop();
+      continue;
+    }
 
     ILookup *lookup = dynamic_cast<ILookup *>(get_table(gpu_id, grouped_id));
     EmbeddingOutput embedding_output{output_buffer, embedding_output_attrs_[gpu_id][grouped_id]};
 
     embeddings[grouped_id]->forward_per_gpu(stage, input[grouped_id], lookup, embedding_output,
                                             batch_size);
+    nvtxRangePop();
   }
 }
 

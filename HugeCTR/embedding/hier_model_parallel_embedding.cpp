@@ -16,6 +16,7 @@
 #include "HugeCTR/embedding/hier_model_parallel_embedding.hpp"
 
 #include "HugeCTR/include/utils.hpp"
+#include <nvtx3/nvToolsExt.h>
 
 namespace embedding {
 
@@ -183,20 +184,28 @@ HierModelParallelEmbedding::HierModelParallelEmbedding(std::shared_ptr<CoreResou
 void HierModelParallelEmbedding::model_forward(const EmbeddingInput &embedding_input,
                                                ILookup *embedding_table, int batch_size) {
   core23::Tensor num_key_per_lookup_offset;
+  nvtxRangePushA("Offset_Calculation");
   compress_offset_.compute(embedding_input.bucket_range, batch_size, &num_key_per_lookup_offset);
+  nvtxRangePop();
 
+  nvtxRangePushA("Embedding_Table_Lookup");
   embedding_table->lookup(embedding_input.keys, embedding_input.h_num_keys,
                           num_key_per_lookup_offset, meta_.num_local_lookup_ + 1,
                           meta_.d_local_table_id_list_, embedding_vec_);
+  nvtxRangePop();
 
   const char *const skip_all2all_env = std::getenv("SKIP_ALL2ALL");
   bool skip_all2all = (skip_all2all_env != nullptr && 1 == std::atoi(skip_all2all_env));
   if (!skip_all2all) {
+    nvtxRangePushA("Intra_Model_All2All_Comm"); 
     intra_model_forward_.intra_forward(embedding_vec_, embedding_input.bucket_range,
                                        intra_model_comm_buffer_, batch_size);
     gpu_barrier_->sync_all_gpus(core_->get_local_gpu()->get_stream(), core_->get_local_gpu_id());
+    nvtxRangePop();
   }
+  nvtxRangePushA("MP_Feature_Vector_Consolidation");
   intra_model_forward_.dst_reduction(intra_model_comm_buffer_, intra_reduction_buffer_, batch_size);
+  nvtxRangePop(); 
 }
 
 void HierModelParallelEmbedding::network_forward(const EmbeddingInput &embedding_input,
@@ -239,10 +248,14 @@ void HierModelParallelEmbedding::forward_per_gpu(Stage stage, const EmbeddingInp
 
   switch (stage) {
     case Stage::HierMPModelForward: {
+      nvtxRangePushA("HierMP_Model_Parameter_Lookup"); 
       model_forward(embedding_input, embedding_table, batch_size);
+      nvtxRangePop();
     } break;
     case Stage::HierMPNetworkForward: {
+      nvtxRangePushA("HierMP_Network_Feature_Assembly"); 
       network_forward(embedding_input, embedding_output, batch_size);
+      nvtxRangePop();
     } break;
     default:
       HCTR_OWN_THROW(HugeCTR::Error_t::IllegalCall,

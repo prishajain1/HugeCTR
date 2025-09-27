@@ -47,6 +47,7 @@ class StreamContextScheduleable : public Scheduleable {
   bool record_external_;
 
   std::function<void()> workload_;
+  std::string label_;
 
  public:
   HCTR_DISALLOW_COPY_AND_MOVE(StreamContextScheduleable);
@@ -58,6 +59,8 @@ class StreamContextScheduleable : public Scheduleable {
   void set_absolute_stream(const std::string &stream_name, int priority = 0);
 
   void set_stream(const std::string &stream_name, int priority = 0);
+
+  void set_label(const std::string &label) { label_ = label; }
 
   std::tuple<std::string, int> get_stream_name(std::shared_ptr<GPUResource> gpu);
 
@@ -73,6 +76,7 @@ class StreamContextScheduleable : public Scheduleable {
 class GraphScheduleable : public Scheduleable {
  private:
   std::vector<std::shared_ptr<Scheduleable>> scheduleable_list_;
+  std::string label_;
   GraphWrapper graph_;
 
  public:
@@ -88,6 +92,7 @@ class GraphScheduleable : public Scheduleable {
       : scheduleable_list_(scheduleable_list) {}
 
   void run(std::shared_ptr<GPUResource> gpu, bool use_graph) override;
+  void set_label(const std::string &label) { label_ = label; }
 };
 
 class Pipeline {

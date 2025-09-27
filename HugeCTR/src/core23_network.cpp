@@ -20,6 +20,7 @@
 #include <io/filesystem.hpp>
 #include <network_helpers.hpp>
 #include <nlohmann/json.hpp>
+#include <nvtx3/nvToolsExt.h>
 #include <parser.hpp>
 #include <regularizer.hpp>
 #include <trainable_layer.hpp>
@@ -68,8 +69,11 @@ void Network::eval(int64_t current_batchsize) {
   std::transform(evaluate_layers_.begin(), evaluate_layers_.end(),
                  std::back_inserter(evaluate_layers_ptr),
                  [](const std::unique_ptr<Layer>& layer) { return layer.get(); });
+  nvtxRangePushA("Dense_Network_Forward");
   prop_layers(evaluate_layers_ptr, true, false);
+  nvtxRangePop();
 
+  nvtxRangePushA("Loss & Regularizer Compute");
   float rterm = evaluate_losses_.begin()->second->regularizer_compute_rterm();
 
   for (std::map<std::string, std::unique_ptr<ILoss>>::iterator iter = evaluate_losses_.begin();
@@ -79,6 +83,7 @@ void Network::eval(int64_t current_batchsize) {
 
   evaluate_losses_.begin()->second->regularizer_initialize_wgrad(
       false);  // Only 1 regularize for now
+  nvtxRangePop();
 }
 void Network::predict() {
   std::vector<Layer*> evaluate_layers_ptr;

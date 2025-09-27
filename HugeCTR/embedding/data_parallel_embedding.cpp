@@ -16,6 +16,7 @@
 
 #include <embedding/data_parallel_embedding.hpp>
 #include <utils.hpp>
+#include <nvtx3/nvToolsExt.h>
 
 namespace embedding {
 
@@ -206,15 +207,20 @@ void UniformDPEmbedding::forward(const EmbeddingInput& embedding_input, ILookup*
   int batch_size_per_gpu = batch_size / core_->get_global_gpu_count();
 
   core23::Tensor num_key_per_lookup_offset;
+  nvtxRangePushA("Offset_Calculation");
   compress_offset_.compute(embedding_input.bucket_range, batch_size_per_gpu,
                            &num_key_per_lookup_offset);
-
+  nvtxRangePop();
+  nvtxRangePushA("Embedding_Table_Lookup");
   embedding_table->lookup(embedding_input.keys, embedding_input.h_num_keys,
                           num_key_per_lookup_offset, meta_.num_local_lookup_ + 1,
                           meta_.d_local_table_id_list_, embedding_vec_);
+  nvtxRangePop();
+  nvtxRangePushA("Sparse_Aggregation_Reduce");
   dp_model_forward_.sparse_forward(embedding_vec_, embedding_input.bucket_range,
                                    meta_.d_local_lookup_id_list_, embedding_output,
                                    batch_size_per_gpu);
+  nvtxRangePop();
 }
 
 void UniformDPEmbedding::dense_allreduce(embedding::Wgrad& wgrad, int batch_size) {

@@ -49,6 +49,38 @@ enum class Stage {
   DenseMPNetworkBackward,
   DenseMPLocalReduce,
 };
+inline const char* to_string(Stage s) {
+  switch (s) {
+    case Stage::DPForward: return "DPForward";
+    case Stage::DPBackwardIndexCalculation: return "DPBackwardIndexCalculation";
+    case Stage::DPLocalReduce: return "DPLocalReduce";
+    case Stage::DPAllreduce: return "DPAllreduce";
+
+    case Stage::DenseDPForward: return "DenseDPForward";
+    case Stage::DenseDPBackwardIndexCalculation: return "DenseDPBackwardIndexCalculation";
+    case Stage::DenseDPLocalReduce: return "DenseDPLocalReduce";
+    case Stage::DenseDPAllReduce: return "DenseDPAllReduce";
+
+    case Stage::HierMPModelForward: return "HierMPModelForward";
+    case Stage::HierMPNetworkForward: return "HierMPNetworkForward";
+    case Stage::HierMPBackwardIndexCalculation: return "HierMPBackwardIndexCalculation";
+    case Stage::HierMPNetworkBackward: return "HierMPNetworkBackward";
+    case Stage::HierMPLocalReduce: return "HierMPLocalReduce";
+
+    case Stage::MPModelForward: return "MPModelForward";
+    case Stage::MPNetworkdForward: return "MPNetworkdForward";
+    case Stage::MPBackwardIndexCalculation: return "MPBackwardIndexCalculation";
+    case Stage::MPNetworkBackward: return "MPNetworkBackward";
+    case Stage::MPLocalReduce: return "MPLocalReduce";
+
+    case Stage::DenseMPModelForward: return "DenseMPModelForward";
+    case Stage::DenseMPNetworkForward: return "DenseMPNetworkForward";
+    case Stage::DenseMPBackwardIndexCalculation: return "DenseMPBackwardIndexCalculation";
+    case Stage::DenseMPNetworkBackward: return "DenseMPNetworkBackward";
+    case Stage::DenseMPLocalReduce: return "DenseMPLocalReduce";
+  }
+  return "Unknown";
+}
 
 class IGroupedEmbeddingOp {
  public:
