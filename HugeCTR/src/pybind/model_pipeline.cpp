@@ -260,24 +260,20 @@ void Model::create_train_pipeline_with_ebc(std::vector<std::shared_ptr<Network>>
                                          networks[local_id]->train_weight_tensor_);
       }
     });
-    network_init->set_label("Network init");
 
     auto bottom_network_fprop = std::make_shared<StreamContextScheduleable>([=] {
       if (skip_bottom_mlp) return;
       networks[local_id]->prop_layers(networks[local_id]->bottom_layers_, true, is_train);
     });
-    bottom_network_fprop->set_label("Bottom MLP fprop");
 
     auto top_network_fprop = std::make_shared<StreamContextScheduleable>([=] {
       if (skip_top_mlp) return;
       networks[local_id]->prop_layers(networks[local_id]->top_layers_, true, is_train);
     });
-    top_network_fprop->set_label("Top MLP fprop");
 
     auto init_wgrad = std::make_shared<StreamContextScheduleable>([=] {
       networks[local_id]->train_losses_.begin()->second->regularizer_initialize_wgrad(is_train);
     });
-    init_wgrad->set_label("Init wgrad");
 
     auto cal_loss = std::make_shared<StreamContextScheduleable>([=] {
       float rterm = networks[local_id]->train_losses_.begin()->second->regularizer_compute_rterm();
@@ -290,23 +286,21 @@ void Model::create_train_pipeline_with_ebc(std::vector<std::shared_ptr<Network>>
       networks[local_id]->train_losses_.begin()->second->compute(
           is_train, current_batchsize_per_device, rterm);
     });
-    cal_loss->set_label("Calculate loss");
 
     auto top_network_bprop = std::make_shared<StreamContextScheduleable>([=] {
       if (skip_top_mlp) return;
       networks[local_id]->prop_layers(networks[local_id]->top_layers_, false, is_train);
     });
-    top_network_bprop->set_label("Top MLP bprop");
 
     auto bottom_network_bprop = std::make_shared<StreamContextScheduleable>([=] {
       if (skip_bottom_mlp) return;
       networks[local_id]->prop_layers(networks[local_id]->bottom_layers_, false, is_train);
     });
-    bottom_network_bprop->set_label("Bottom MLP bprop");
 
     auto network_graph = std::make_shared<GraphScheduleable>(
         network_init, bottom_network_fprop, top_network_fprop, init_wgrad, cal_loss,
         top_network_bprop, bottom_network_bprop);
+    network_graph->set_label("Network init,Bottom MLP fprop,Top MLP fprop,Init wgrad,Calculate loss,Top MLP bprop,Bottom MLP bprop");
 
     const char* const skip_allreduce_env = std::getenv("SKIP_ALLREDUCE");
     bool skip_allreduce = (skip_allreduce_env != nullptr && 1 == std::atoi(skip_allreduce_env));
@@ -404,7 +398,7 @@ void Model::create_train_pipeline_with_ebc(std::vector<std::shared_ptr<Network>>
                                     train_data_reader_->get_full_batchsize());
             }
           });
-      ebc_cache_train_ddl_output->set_label("EBC: Cache DDL output for overlap");
+      ebc_cache_train_ddl_output->set_label("EBC_Training_Input_Staging");
 
       auto copy_next_iter_network_input = std::make_shared<StreamContextScheduleable>([=]() {
         if (skip_prefetch_in_last_batch(is_train)) return;

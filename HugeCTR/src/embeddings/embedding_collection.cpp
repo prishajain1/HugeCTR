@@ -400,12 +400,19 @@ void EmbeddingCollection::forward_per_gpu(bool is_train, int gpu_id,
 void EmbeddingCollection::backward_per_gpu(Stage stage, int gpu_id,
                                            const HugeCTR::DataDistributor::Result &input,
                                            const core23::Tensor &top_grad, int batch_size) {
+  std::string stage_name = to_string(stage);
   for (size_t grouped_id = 0; grouped_id < embeddings_[gpu_id].size(); ++grouped_id) {
-    if (!embeddings_[gpu_id][grouped_id]->is_valid_stage(stage)) continue;
+    std::string group_label = std::string(stage_name) + "::Group_" + std::to_string(grouped_id); 
+    nvtxRangePushA(group_label.c_str()); 
+    if (!embeddings_[gpu_id][grouped_id]->is_valid_stage(stage)) {
+      nvtxRangePop();
+      continue;
+    }
 
     EmbeddingOutput top_grad_buffer{top_grad, embedding_output_attrs_[gpu_id][grouped_id]};
     embeddings_[gpu_id][grouped_id]->backward_per_gpu(stage, input[grouped_id], top_grad_buffer,
                                                       wgrad_list_[gpu_id][grouped_id], batch_size);
+    nvtxRangePop();
   }
 }
 
